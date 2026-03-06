@@ -18,6 +18,7 @@ export async function DELETE(): Promise<NextResponse> {
       prisma.bookmarkCategory.deleteMany({}),
       prisma.mediaItem.deleteMany({}),
       prisma.bookmark.deleteMany({}),
+      prisma.category.deleteMany({}),
     ])
     return NextResponse.json({ success: true })
   } catch (err) {
