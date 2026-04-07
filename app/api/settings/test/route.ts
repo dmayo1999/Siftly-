@@ -17,6 +17,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   if (provider === 'anthropic') {
     const setting = await prisma.setting.findUnique({ where: { key: 'anthropicApiKey' } })
     const dbKey = setting?.value?.trim()
+    const modelSetting = await prisma.setting.findUnique({ where: { key: 'anthropicModel' } })
+    const model = modelSetting?.value?.trim() || 'claude-3-5-sonnet-latest'
 
     let client
     try {
@@ -31,17 +33,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     try {
       await client.messages.create({
-        model: 'claude-haiku-4-5-20251001',
+        model,
         max_tokens: 5,
         messages: [{ role: 'user', content: 'hi' }],
       })
       return NextResponse.json({ working: true })
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      const friendly = msg.includes('401') || msg.includes('invalid_api_key')
+      const friendly = msg.includes('401') || msg.includes('invalid_api_key') || msg.includes('authentication')
         ? 'Invalid API key'
         : msg.includes('403')
         ? 'Key does not have permission'
+        : msg.includes('404')
+        ? `Model "${model}" not found on this provider`
         : msg.slice(0, 120)
       return NextResponse.json({ working: false, error: friendly })
     }
@@ -50,27 +54,33 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   if (provider === 'openai') {
     const setting = await prisma.setting.findUnique({ where: { key: 'openaiApiKey' } })
     const dbKey = setting?.value?.trim()
+    const urlSetting = await prisma.setting.findUnique({ where: { key: 'openaiBaseUrl' } })
+    const baseURL = urlSetting?.value?.trim()
+    const modelSetting = await prisma.setting.findUnique({ where: { key: 'openaiModel' } })
+    const model = modelSetting?.value?.trim() || 'gpt-4o-mini'
 
     let client
     try {
-      client = resolveOpenAIClient({ dbKey })
+      client = resolveOpenAIClient({ dbKey, baseURL: baseURL || undefined })
     } catch {
-      return NextResponse.json({ working: false, error: 'No OpenAI API key found. Add one in Settings or set up Codex CLI.' })
+      return NextResponse.json({ working: false, error: 'No OpenAI API key found. Add one in Settings.' })
     }
 
     try {
       await client.chat.completions.create({
-        model: 'gpt-4.1-mini',
+        model,
         max_tokens: 5,
         messages: [{ role: 'user', content: 'hi' }],
       })
       return NextResponse.json({ working: true })
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      const friendly = msg.includes('401') || msg.includes('invalid_api_key')
-        ? 'Invalid API key'
+      const friendly = msg.includes('401') || msg.includes('invalid_api_key') || msg.includes('authentication')
+        ? `Invalid API key (tested against ${baseURL || 'OpenAI'})`
         : msg.includes('403')
         ? 'Key does not have permission'
+        : msg.includes('404') || msg.includes('not_found')
+        ? `Model "${model}" not found on this provider`
         : msg.slice(0, 120)
       return NextResponse.json({ working: false, error: friendly })
     }
