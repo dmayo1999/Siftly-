@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
 import { resolveAnthropicClient } from './claude-cli-auth'
 import { resolveOpenAIClient } from './openai-auth'
-import { getProvider } from './settings'
+import { getProvider, getOpenAIBaseUrl } from './settings'
 
 export interface AIContentBlock {
   type: 'text' | 'image'
@@ -106,7 +106,11 @@ export async function resolveAIClient(options: {
   const provider = await getProvider()
 
   if (provider === 'openai') {
-    const client = resolveOpenAIClient(options)
+    const baseURL = await getOpenAIBaseUrl()
+    const client = resolveOpenAIClient({
+      ...options,
+      baseURL: baseURL || undefined
+    })
     return new OpenAIAIClient(client)
   }
 
