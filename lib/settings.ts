@@ -10,6 +10,9 @@ let _providerCacheExpiry = 0
 let _cachedOpenAIModel: string | null = null
 let _openAIModelCacheExpiry = 0
 
+let _cachedOpenAIBaseUrl: string | null = null
+let _openAIBaseUrlCacheExpiry = 0
+
 const CACHE_TTL = 5 * 60 * 1000
 
 /**
@@ -18,7 +21,7 @@ const CACHE_TTL = 5 * 60 * 1000
 export async function getAnthropicModel(): Promise<string> {
   if (_cachedModel && Date.now() < _modelCacheExpiry) return _cachedModel
   const setting = await prisma.setting.findUnique({ where: { key: 'anthropicModel' } })
-  _cachedModel = setting?.value ?? 'claude-haiku-4-5-20251001'
+  _cachedModel = setting?.value ?? 'claude-3-5-sonnet-latest'
   _modelCacheExpiry = Date.now() + CACHE_TTL
   return _cachedModel
 }
@@ -40,9 +43,20 @@ export async function getProvider(): Promise<'anthropic' | 'openai'> {
 export async function getOpenAIModel(): Promise<string> {
   if (_cachedOpenAIModel && Date.now() < _openAIModelCacheExpiry) return _cachedOpenAIModel
   const setting = await prisma.setting.findUnique({ where: { key: 'openaiModel' } })
-  _cachedOpenAIModel = setting?.value ?? 'gpt-4.1-mini'
+  _cachedOpenAIModel = setting?.value ?? 'gpt-4o-mini'
   _openAIModelCacheExpiry = Date.now() + CACHE_TTL
   return _cachedOpenAIModel
+}
+
+/**
+ * Get the configured OpenAI Base URL (e.g. for OpenRouter).
+ */
+export async function getOpenAIBaseUrl(): Promise<string | null> {
+  if (_cachedOpenAIBaseUrl && Date.now() < _openAIBaseUrlCacheExpiry) return _cachedOpenAIBaseUrl
+  const setting = await prisma.setting.findUnique({ where: { key: 'openaiBaseUrl' } })
+  _cachedOpenAIBaseUrl = setting?.value ?? null
+  _openAIBaseUrlCacheExpiry = Date.now() + CACHE_TTL
+  return _cachedOpenAIBaseUrl
 }
 
 /**
@@ -63,4 +77,6 @@ export function invalidateSettingsCache(): void {
   _providerCacheExpiry = 0
   _cachedOpenAIModel = null
   _openAIModelCacheExpiry = 0
+  _cachedOpenAIBaseUrl = null
+  _openAIBaseUrlCacheExpiry = 0
 }
