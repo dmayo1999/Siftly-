@@ -20,22 +20,22 @@ import {
   Terminal,
   Loader2,
   X,
+  Globe,
+  Cpu
 } from 'lucide-react'
 
 const ANTHROPIC_MODELS = [
-  { value: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5', description: 'Fast & Cheap' },
-  { value: 'claude-sonnet-4-6', label: 'Sonnet 4.6', description: 'Smart & Balanced' },
-  { value: 'claude-opus-4-6', label: 'Opus 4.6', description: 'Most Capable' },
+  { value: 'claude-3-5-sonnet-latest', label: 'Sonnet 3.5' },
+  { value: 'claude-3-5-haiku-latest', label: 'Haiku 3.5' },
+  { value: 'claude-3-opus-latest', label: 'Opus 3' },
 ]
 
 const OPENAI_MODELS = [
-  { value: 'gpt-4.1-mini', label: 'GPT-4.1 Mini', description: 'Fast & Cheap' },
-  { value: 'gpt-4.1', label: 'GPT-4.1', description: 'Most Capable' },
-  { value: 'gpt-4.1-nano', label: 'GPT-4.1 Nano', description: 'Fastest' },
-  { value: 'o4-mini', label: 'o4-mini', description: 'Reasoning (mini)' },
-  { value: 'o3', label: 'o3', description: 'Reasoning' },
+  { value: 'gpt-4o', label: 'GPT-4o' },
+  { value: 'gpt-4o-mini', label: 'GPT-4o Mini' },
+  { value: 'o1', label: 'o1' },
+  { value: 'o1-mini', label: 'o1-mini' },
 ]
-
 
 interface Toast {
   type: 'success' | 'error'
@@ -45,14 +45,14 @@ interface Toast {
 function ToastAlert({ toast }: { toast: Toast }) {
   return (
     <div
-      className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium border ${
+      className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium border animate-in fade-in slide-in-from-top-2 ${
         toast.type === 'success'
           ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
           : 'bg-red-500/10 text-red-400 border-red-500/20'
       }`}
     >
       {toast.type === 'success' ? <Check size={15} className="shrink-0" /> : <AlertCircle size={15} className="shrink-0" />}
-      {toast.message}
+      <span className="break-words">{toast.message}</span>
     </div>
   )
 }
@@ -120,7 +120,6 @@ function ApiKeyField({
   const [testState, setTestState] = useState<'idle' | 'testing' | 'ok' | 'fail'>('idle')
   const [testError, setTestError] = useState('')
 
-  // Load existing saved key status on mount
   useEffect(() => {
     fetch('/api/settings')
       .then((r) => r.json())
@@ -146,13 +145,11 @@ function ApiKeyField({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ [fieldKey]: key.trim() }),
       })
-      if (!res.ok) {
-        const data = await res.json() as { error?: string }
-        throw new Error(data.error ?? 'Failed to save')
-      }
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Failed to save')
+      
       setSavedMasked(key.trim().slice(0, 6) + '••••••••' + key.trim().slice(-4))
       setKey('')
-      // Auto-test after save
       if (testProvider) void handleTest()
       else onToast({ type: 'success', message: `${label} saved successfully` })
     } catch (err) {
@@ -173,10 +170,9 @@ function ApiKeyField({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ key: fieldKey }),
       })
-      if (!res.ok) {
-        const data = await res.json() as { error?: string }
-        throw new Error(data.error ?? 'Failed to remove')
-      }
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Failed to remove')
+      
       setSavedMasked(null)
       setTestState('idle')
       onToast({ type: 'success', message: `${label} removed` })
@@ -298,19 +294,20 @@ function ApiKeyField({
   )
 }
 
-function ModelSelector({
-  models,
+function ModelInput({
+  suggestions,
   settingKey,
   defaultValue,
   onToast,
 }: {
-  models: { value: string; label: string; description: string }[]
+  suggestions: { value: string; label: string }[]
   settingKey: 'anthropicModel' | 'openaiModel'
   defaultValue: string
   onToast: (t: Toast) => void
 }) {
   const [value, setValue] = useState(defaultValue)
   const [saved, setSaved] = useState(false)
+  const [isFocused, setIsFocused] = useState(false)
 
   useEffect(() => {
     fetch('/api/settings')
@@ -319,13 +316,13 @@ function ModelSelector({
       .catch(() => {})
   }, [settingKey])
 
-  async function handleChange(newVal: string) {
-    setValue(newVal)
+  async function handleSave(newModel: string) {
+    setValue(newModel)
     try {
       const res = await fetch('/api/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ [settingKey]: newVal }),
+        body: JSON.stringify({ [settingKey]: newModel.trim() }),
       })
       if (!res.ok) throw new Error('Failed')
       setSaved(true)
@@ -335,188 +332,130 @@ function ModelSelector({
     }
   }
 
-  const selected = models.find((m) => m.value === value) ?? models[0]
-
   return (
-    <>
-      <div className="flex items-center gap-2 mt-2.5">
-        <span className="text-xs text-zinc-500 shrink-0">Model:</span>
-        <div className="relative flex-1">
-          <select
+    <div className="mt-4">
+      <div className="flex items-center gap-2 mb-2">
+        <Cpu size={14} className="text-zinc-400" />
+        <span className="text-xs font-semibold text-zinc-300">Target Model</span>
+      </div>
+      <div className="relative group">
+        <div className="flex gap-2">
+          <input
+            type="text"
             value={value}
-            onChange={(e) => void handleChange(e.target.value)}
-            className="w-full appearance-none pl-3 pr-8 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-zinc-200 text-sm focus:outline-none focus:border-indigo-500 transition-colors cursor-pointer"
+            onFocus={() => setIsFocused(true)}
+            onBlur={() => setTimeout(() => setIsFocused(false), 200)}
+            onChange={(e) => setValue(e.target.value)}
+            placeholder="e.g. gpt-4o, anthropic/claude-3-haiku..."
+            className="flex-1 px-3.5 py-2.5 rounded-xl bg-zinc-800 border border-zinc-700 text-zinc-100 placeholder:text-zinc-600 text-sm focus:outline-none focus:border-indigo-500 font-mono transition-all"
+          />
+          <button
+            onClick={() => void handleSave(value)}
+            className="px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-xs font-medium text-zinc-300 transition-all"
           >
-            {models.map((m) => (
-              <option key={m.value} value={m.value}>
-                {m.label} — {m.description}
-              </option>
+            {saved ? <Check size={14} className="text-emerald-400" /> : 'Apply'}
+          </button>
+        </div>
+        
+        {isFocused && suggestions.length > 0 && (
+          <div className="absolute top-full left-0 right-0 mt-1.5 p-1 rounded-xl bg-zinc-800 border border-zinc-700 shadow-2xl z-50 animate-in fade-in zoom-in-95 duration-100">
+            {suggestions.map((s) => (
+              <button
+                key={s.value}
+                onClick={() => void handleSave(s.value)}
+                className="w-full text-left px-3 py-2 rounded-lg text-xs hover:bg-zinc-700 text-zinc-400 hover:text-zinc-100 transition-colors flex justify-between items-center"
+              >
+                <span>{s.label}</span>
+                <span className="font-mono text-[10px] opacity-40">{s.value}</span>
+              </button>
             ))}
-          </select>
-          <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none" />
-        </div>
-        {saved && (
-          <span className="flex items-center gap-1 text-xs text-emerald-400 shrink-0">
-            <Check size={12} /> Saved
-          </span>
-        )}
-        {!saved && selected && (
-          <span className="text-xs text-zinc-600 shrink-0 hidden sm:block">{selected.description}</span>
+          </div>
         )}
       </div>
-      {value === 'claude-opus-4-6' && (
-        <p className="text-xs text-amber-500/80 mt-1.5">
-          Opus is slow with 20 parallel workers — consider Sonnet or Haiku for faster bulk categorization.
-        </p>
-      )}
-    </>
-  )
-}
-
-interface CliStatus {
-  available: boolean
-  subscriptionType?: string
-  expired?: boolean
-}
-
-function ClaudeCliStatusBox() {
-  const [status, setStatus] = useState<CliStatus | null>(null)
-
-  useEffect(() => {
-    fetch('/api/settings/cli-status')
-      .then((r) => r.json())
-      .then((d: CliStatus) => setStatus(d))
-      .catch(() => setStatus({ available: false }))
-  }, [])
-
-  if (status === null) return null // loading — don't flash UI
-
-  if (status.available && !status.expired) {
-    const tier = status.subscriptionType
-      ? status.subscriptionType.charAt(0).toUpperCase() + status.subscriptionType.slice(1)
-      : 'CLI'
-    return (
-      <div className="flex gap-3 p-3.5 rounded-xl bg-emerald-500/5 border border-emerald-500/20 mb-5">
-        <Check size={15} className="text-emerald-400 shrink-0 mt-0.5" />
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-emerald-300">
-            Claude CLI detected — no API key needed
-          </p>
-          <p className="text-xs text-zinc-500 mt-0.5 leading-relaxed">
-            Signed in as <span className="text-zinc-300">{tier}</span> via Claude Code. Siftly will use your subscription automatically. An API key below will take priority if set.
-          </p>
-        </div>
-      </div>
-    )
-  }
-
-  if (status.available && status.expired) {
-    return (
-      <div className="flex gap-3 p-3.5 rounded-xl bg-amber-500/5 border border-amber-500/20 mb-5">
-        <AlertCircle size={15} className="text-amber-400 shrink-0 mt-0.5" />
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-amber-300">Claude CLI session expired</p>
-          <p className="text-xs text-zinc-500 mt-0.5">
-            Run <span className="font-mono text-zinc-300">claude</span> in your terminal to refresh the session, then reload this page.
-          </p>
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div className="flex gap-3 p-3.5 rounded-xl bg-zinc-800/60 border border-zinc-700 mb-5">
-      <Terminal size={15} className="text-zinc-400 shrink-0 mt-0.5" />
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium text-zinc-200">No Claude CLI detected</p>
-        <p className="text-xs text-zinc-500 mt-0.5 leading-relaxed">
-          Install Claude Code and sign in to skip the API key entirely, or paste your API key below.
-        </p>
-      </div>
+      <p className="text-[10px] text-zinc-600 mt-2 italic">Type any model name compatible with your provider/router.</p>
     </div>
   )
 }
 
-function CodexCliStatusBox() {
-  const [status, setStatus] = useState<{ available: boolean; expired?: boolean; planType?: string; authMode?: string } | null>(null)
+function BaseUrlField({ onToast }: { onToast: (t: Toast) => void }) {
+  const [url, setUrl] = useState('')
+  const [saved, setSaved] = useState(false)
+  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    fetch('/api/settings/cli-status')
+    fetch('/api/settings')
       .then((r) => r.json())
-      .then((d: { codex?: { available: boolean; expired?: boolean; planType?: string; authMode?: string } }) => setStatus(d.codex ?? { available: false }))
-      .catch(() => setStatus({ available: false }))
+      .then((d) => { if (d.openaiBaseUrl) setUrl(d.openaiBaseUrl) })
+      .catch(() => {})
   }, [])
 
-  if (status === null) return null
-
-  if (status.available && !status.expired) {
-    const tier = status.planType
-      ? status.planType.charAt(0).toUpperCase() + status.planType.slice(1)
-      : 'CLI'
-    return (
-      <div className="flex gap-3 p-3.5 rounded-xl bg-emerald-500/5 border border-emerald-500/20 mb-5">
-        <Check size={15} className="text-emerald-400 shrink-0 mt-0.5" />
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-emerald-300">
-            Codex CLI detected — no API key needed
-          </p>
-          <p className="text-xs text-zinc-500 mt-0.5 leading-relaxed">
-            Signed in as <span className="text-zinc-300">{tier}</span> via Codex CLI. Siftly will use your credentials automatically. An API key below will take priority if set.
-          </p>
-        </div>
-      </div>
-    )
-  }
-
-  if (status.available && status.expired) {
-    return (
-      <div className="flex gap-3 p-3.5 rounded-xl bg-amber-500/5 border border-amber-500/20 mb-5">
-        <AlertCircle size={15} className="text-amber-400 shrink-0 mt-0.5" />
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-amber-300">Codex CLI session expired</p>
-          <p className="text-xs text-zinc-500 mt-0.5">
-            Run <span className="font-mono text-zinc-300">codex</span> in your terminal to refresh, then reload this page.
-          </p>
-        </div>
-      </div>
-    )
+  async function handleSave() {
+    setSaving(true)
+    try {
+      const res = await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ openaiBaseUrl: url.trim() }),
+      })
+      if (!res.ok) throw new Error('Failed')
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    } catch {
+      onToast({ type: 'error', message: 'Failed to save Base URL' })
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
-    <div className="flex gap-3 p-3.5 rounded-xl bg-zinc-800/60 border border-zinc-700 mb-5">
-      <Terminal size={15} className="text-zinc-400 shrink-0 mt-0.5" />
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium text-zinc-200">No Codex CLI detected</p>
-        <p className="text-xs text-zinc-500 mt-0.5 leading-relaxed">
-          Install Codex CLI and sign in to skip the API key entirely, or paste your OpenAI API key below.
-        </p>
+    <div className="mt-5 pt-5 border-t border-zinc-800/50">
+      <div className="flex items-center gap-2 mb-2">
+        <Globe size={14} className="text-zinc-400" />
+        <span className="text-xs font-semibold text-zinc-300">Custom Base URL (OpenRouter / Proxy)</span>
       </div>
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          placeholder="e.g. https://openrouter.ai/api/v1"
+          className="flex-1 px-3.5 py-2 rounded-xl bg-zinc-800 border border-zinc-700 text-zinc-300 placeholder:text-zinc-600 text-xs focus:outline-none focus:border-indigo-500 font-mono transition-all"
+        />
+        <button
+          onClick={() => void handleSave()}
+          disabled={saving}
+          className="px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-xs font-medium text-zinc-400 transition-all shrink-0"
+        >
+          {saving ? '...' : saved ? <Check size={14} className="text-emerald-400" /> : 'Set URL'}
+        </button>
+      </div>
+      <p className="text-[10px] text-zinc-600 mt-2">Required for OpenRouter or self-hosted LLM proxies. Leave blank for standard OpenAI.</p>
     </div>
   )
 }
 
 function ProviderToggle({ value, onChange }: { value: 'anthropic' | 'openai'; onChange: (v: 'anthropic' | 'openai') => void }) {
   return (
-    <div className="flex items-center gap-1 p-1 rounded-xl bg-zinc-800 border border-zinc-700 mb-5">
+    <div className="flex items-center gap-1 p-1 rounded-xl bg-zinc-800 border border-zinc-700 mb-5 text-[13px]">
       <button
         onClick={() => onChange('anthropic')}
-        className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+        className={`flex-1 px-4 py-2 rounded-lg font-medium transition-all ${
           value === 'anthropic'
-            ? 'bg-indigo-600 text-white shadow-sm'
-            : 'text-zinc-400 hover:text-zinc-200'
+            ? 'bg-zinc-700 text-indigo-400 shadow-sm'
+            : 'text-zinc-500 hover:text-zinc-300'
         }`}
       >
         Anthropic (Claude)
       </button>
       <button
         onClick={() => onChange('openai')}
-        className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+        className={`flex-1 px-4 py-2 rounded-lg font-medium transition-all ${
           value === 'openai'
-            ? 'bg-emerald-600 text-white shadow-sm'
-            : 'text-zinc-400 hover:text-zinc-200'
+            ? 'bg-zinc-700 text-emerald-400 shadow-sm'
+            : 'text-zinc-500 hover:text-zinc-300'
         }`}
       >
-        OpenAI (GPT)
+        OpenAI (GPT / Router)
       </button>
     </div>
   )
@@ -543,25 +482,22 @@ function ApiKeySection({ onToast }: { onToast: (t: Toast) => void }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ provider: newProvider }),
       })
-      if (!res.ok) throw new Error('Failed to save provider')
-      onToast({ type: 'success', message: `Switched to ${newProvider === 'openai' ? 'OpenAI' : 'Anthropic'}` })
-    } catch {
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Failed to save')
+      onToast({ type: 'success', message: `Switched to ${newProvider === 'openai' ? 'OpenAI / Router' : 'Anthropic'}` })
+    } catch (err) {
       setProvider(prev) // revert on failure
-      onToast({ type: 'error', message: 'Failed to save provider preference' })
+      onToast({ 
+        type: 'error', 
+        message: err instanceof Error ? err.message : 'Failed to save provider preference' 
+      })
     }
   }
 
-  // Don't render until we know the saved provider — avoids flicker
   if (provider === null) {
     return (
-      <Section
-        icon={Key}
-        title="AI Provider"
-        description="Choose your AI provider and configure keys. CLI auth means no key needed."
-      >
-        <div className="flex items-center gap-2 text-sm text-zinc-500">
-          <Loader2 size={14} className="animate-spin" /> Loading settings…
-        </div>
+      <Section icon={Key} title="AI Provider" description="Loading settings…">
+        <div className="flex items-center gap-2 text-sm text-zinc-500 py-4"><Loader2 size={16} className="animate-spin" /></div>
       </Section>
     )
   }
@@ -570,85 +506,64 @@ function ApiKeySection({ onToast }: { onToast: (t: Toast) => void }) {
     <Section
       icon={Key}
       title="AI Provider"
-      description="Choose your AI provider and configure keys. CLI auth means no key needed."
+      description="Choose your AI provider and configure keys. CLI auth handles billing automatically."
     >
       <ProviderToggle value={provider} onChange={(v) => void handleProviderChange(v)} />
 
       {provider === 'anthropic' ? (
-        <>
-          <ClaudeCliStatusBox />
-          <div className="space-y-5">
-            <div>
-              <ApiKeyField
-                label="Anthropic (Claude)"
-                placeholder="sk-ant-api03-..."
-                fieldKey="anthropicApiKey"
-                hint="Used for AI categorization, search, and image analysis."
-                docHref="https://console.anthropic.com"
-                onToast={onToast}
-                testProvider="anthropic"
-              />
-              <ModelSelector
-                models={ANTHROPIC_MODELS}
-                settingKey="anthropicModel"
-                defaultValue="claude-haiku-4-5-20251001"
-                onToast={onToast}
-              />
-              <p className="text-xs text-zinc-500 mt-1.5">Applies to all AI operations — API key <strong className="text-zinc-400 font-medium">and Claude CLI</strong></p>
-            </div>
-          </div>
-        </>
+        <div className="space-y-5 animate-in fade-in duration-300">
+          <ApiKeyField
+            label="Anthropic (Claude)"
+            placeholder="sk-ant-..."
+            fieldKey="anthropicApiKey"
+            hint="API key used for enrichment and categorization."
+            docHref="https://console.anthropic.com"
+            onToast={onToast}
+            testProvider="anthropic"
+          />
+          <ModelInput
+            suggestions={ANTHROPIC_MODELS}
+            settingKey="anthropicModel"
+            defaultValue="claude-3-5-sonnet-latest"
+            onToast={onToast}
+          />
+        </div>
       ) : (
-        <>
-          <CodexCliStatusBox />
-          <div className="space-y-5">
-            <div>
-              <ApiKeyField
-                label="OpenAI"
-                placeholder="sk-..."
-                fieldKey="openaiApiKey"
-                hint="Used for AI categorization, search, and image analysis."
-                docHref="https://platform.openai.com/api-keys"
-                onToast={onToast}
-                testProvider="openai"
-              />
-              <ModelSelector
-                models={OPENAI_MODELS}
-                settingKey="openaiModel"
-                defaultValue="gpt-4.1-mini"
-                onToast={onToast}
-              />
-              <p className="text-xs text-zinc-500 mt-1.5">Applies to all AI operations — API key <strong className="text-zinc-400 font-medium">and Codex CLI</strong></p>
-            </div>
-          </div>
-        </>
+        <div className="space-y-5 animate-in fade-in duration-300">
+          <ApiKeyField
+            label="OpenAI / OpenRouter Key"
+            placeholder="sk-..."
+            fieldKey="openaiApiKey"
+            hint="API key used for enrichment and categorization."
+            docHref="https://openrouter.ai/keys"
+            onToast={onToast}
+            testProvider="openai"
+          />
+          <ModelInput
+            suggestions={OPENAI_MODELS}
+            settingKey="openaiModel"
+            defaultValue="gpt-4o-mini"
+            onToast={onToast}
+          />
+          <BaseUrlField onToast={onToast} />
+        </div>
       )}
-      <p className="text-xs text-zinc-600 mt-4">Keys are stored in plaintext in your local SQLite database (<code className="font-mono">prisma/dev.db</code>). Do not expose the database file.</p>
+      <p className="text-[11px] text-zinc-600 mt-6 border-t border-zinc-800/30 pt-4">
+        Keys are stored in your local SQLite database (<code className="font-mono">prisma/dev.db</code>).
+      </p>
     </Section>
   )
 }
 
-function ExportButton({
-  label,
-  href,
-  description,
-}: {
-  label: string
-  href: string
-  description: string
-}) {
+function ExportButton({ label, href, description }: { label: string; href: string; description: string }) {
   return (
     <button
-      onClick={() => {
-        window.location.href = href
-      }}
+      onClick={() => { window.location.href = href }}
       className="flex flex-col items-start gap-1 p-4 rounded-xl bg-zinc-800 hover:bg-zinc-750 border border-zinc-700 hover:border-zinc-600 transition-all duration-200 text-left group w-full"
     >
       <div className="flex items-center gap-2">
         <Download size={14} className="text-zinc-400 group-hover:text-zinc-200 transition-colors" />
-        <span className="text-sm font-medium text-zinc-300 group-hover:text-zinc-100 transition-colors">
-          {label}
-        </span>
+        <span className="text-sm font-medium text-zinc-300 group-hover:text-zinc-100 transition-colors">{label}</span>
       </div>
       <p className="text-xs text-zinc-600">{description}</p>
     </button>
@@ -657,22 +572,10 @@ function ExportButton({
 
 function DataSection() {
   return (
-    <Section
-      icon={Database}
-      title="Data Management"
-      description="Export all your bookmarks and category data for backup or migration."
-    >
+    <Section icon={Database} title="Data Management" description="Export all your bookmarks for backup.">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <ExportButton
-          label="Export as CSV"
-          href="/api/export?type=csv"
-          description="Spreadsheet-compatible format"
-        />
-        <ExportButton
-          label="Export as JSON"
-          href="/api/export?type=json"
-          description="Full data with all fields"
-        />
+        <ExportButton label="Export as CSV" href="/api/export?type=csv" description="Spreadsheet format" />
+        <ExportButton label="Export as JSON" href="/api/export?type=json" description="Full object structure" />
       </div>
     </Section>
   )
@@ -688,14 +591,13 @@ function DangerZoneSection({ onToast }: { onToast: (t: Toast) => void }) {
     try {
       const res = await fetch('/api/bookmarks', { method: 'DELETE' })
       if (!res.ok) {
-        const data = await res.json() as { error?: string }
+        const data = await res.json()
         throw new Error(data.error ?? 'Failed to clear')
       }
       onToast({ type: 'success', message: 'All bookmarks deleted successfully' })
       setConfirming(false)
       setCleared(true)
       setTimeout(() => setCleared(false), 3000)
-      window.dispatchEvent(new CustomEvent('siftly:cleared'))
     } catch (err) {
       onToast({ type: 'error', message: err instanceof Error ? err.message : 'Failed to clear bookmarks' })
     } finally {
@@ -704,274 +606,42 @@ function DangerZoneSection({ onToast }: { onToast: (t: Toast) => void }) {
   }
 
   return (
-    <Section
-      icon={Shield}
-      title="Danger Zone"
-      description="Irreversible actions that affect all your data."
-      variant="danger"
-    >
-      <div className="flex items-center justify-between p-4 rounded-xl bg-red-900/20 border border-red-800/40">
+    <Section icon={Shield} title="Danger Zone" description="Irreversible actions." variant="danger">
+      <div className="flex items-center justify-between p-4 rounded-xl bg-red-900/10 border border-red-800/20">
         <div>
           <p className="text-sm font-medium text-zinc-300">Clear all bookmarks</p>
-          <p className="text-xs text-zinc-500 mt-0.5">Permanently delete all imported bookmarks</p>
+          <p className="text-xs text-zinc-600">Permanently delete everything.</p>
         </div>
-        {cleared ? (
-          <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium text-emerald-400 bg-emerald-500/10 border border-emerald-500/20">
-            <Check size={14} />
-            Cleared
-          </div>
-        ) : !confirming ? (
-          <button
-            onClick={() => setConfirming(true)}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium text-red-400 bg-red-800/30 hover:bg-red-700/40 border border-red-700/50 hover:border-red-600/60 transition-all"
-          >
-            <Trash2 size={14} />
-            Clear all
-          </button>
+        {!confirming ? (
+          <button onClick={() => setConfirming(true)} className="px-4 py-2 rounded-xl text-xs font-semibold text-red-400 bg-red-800/20 hover:bg-red-800/30 border border-red-800/40 transition-all">Clear</button>
         ) : (
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-zinc-400 mr-1">Are you sure?</span>
-            <button
-              onClick={() => setConfirming(false)}
-              disabled={clearing}
-              className="px-3 py-2 rounded-lg text-xs font-medium text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={() => void handleClearAll()}
-              disabled={clearing}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium text-white bg-red-600 hover:bg-red-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              <Trash2 size={12} />
-              {clearing ? 'Deleting…' : 'Yes, delete all'}
-            </button>
+          <div className="flex gap-2">
+            <button onClick={() => setConfirming(false)} className="px-3 py-2 rounded-lg text-xs text-zinc-500 hover:bg-zinc-800">Cancel</button>
+            <button onClick={() => void handleClearAll()} disabled={clearing} className="px-3 py-2 rounded-lg text-xs font-bold bg-red-600 text-white animate-pulse">Delete!</button>
           </div>
         )}
       </div>
     </Section>
   )
 }
-
-const TECH_STACK = [
-  { label: 'Next.js 15', color: 'bg-zinc-800 text-zinc-300 border-zinc-700' },
-  { label: 'Prisma + SQLite', color: 'bg-zinc-800 text-zinc-300 border-zinc-700' },
-  { label: 'Anthropic / OpenAI', color: 'bg-blue-500/10 text-blue-300 border-blue-500/20' },
-  { label: 'React Flow', color: 'bg-zinc-800 text-zinc-300 border-zinc-700' },
-  { label: 'Tailwind CSS', color: 'bg-cyan-500/10 text-cyan-300 border-cyan-500/20' },
-]
 
 const DONATION_ADDRESS = '0xcF10B967a9e422753812004Cd59990f62E360760'
 
 function AboutSection() {
   const [copied, setCopied] = useState(false)
-
-  function copyAddress() {
-    void navigator.clipboard.writeText(DONATION_ADDRESS).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    })
-  }
-
   return (
-    <Section icon={Info} title="About Siftly" description="Self-hosted Twitter bookmark manager">
-      <p className="text-sm text-zinc-400 leading-relaxed mb-5">
-        <strong className="text-zinc-100 font-semibold">Siftly</strong> is a self-hosted app for
-        organizing your Twitter/X bookmarks. Use the built-in bookmarklet or console script to import,
-        then run the 4-stage AI pipeline to analyze images, extract entities, generate semantic tags, and
-        auto-categorize — then explore connections through the interactive mindmap.
+    <Section icon={Info} title="About Siftly" description="Local-first bookmark organizer.">
+      <p className="text-sm text-zinc-400 leading-relaxed mb-6">
+        Organize your Twitter bookmarks with AI categorization and mindmaps. Built to be secure and isolated.
       </p>
-
-      {/* Builder + support row */}
-      <div className="flex flex-col sm:flex-row gap-3">
-        {/* Built by */}
-        <a
-          href="https://x.com/viperr"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center gap-2.5 px-4 py-3 rounded-xl bg-zinc-800/50 border border-zinc-700/50 hover:border-zinc-600 hover:bg-zinc-800 transition-all group flex-1"
-        >
-          <span className="text-base leading-none">𝕏</span>
-          <div className="min-w-0">
-            <p className="text-xs font-semibold text-zinc-200 group-hover:text-white transition-colors">@viperr</p>
-            <p className="text-[11px] text-zinc-600">Built &amp; open-sourced by</p>
-          </div>
-          <ExternalLink size={12} className="text-zinc-600 group-hover:text-zinc-400 transition-colors ml-auto shrink-0" />
+      <div className="flex flex-col sm:flex-row gap-4">
+        <a href="https://x.com/viperr" target="_blank" rel="noopener noreferrer" className="flex-1 p-4 rounded-2xl bg-zinc-800/40 border border-zinc-800 hover:border-zinc-700 transition-all flex items-center justify-between group">
+          <div className="flex items-center gap-3 text-sm font-medium text-zinc-100">𝕏 @viperr</div>
+          <ExternalLink size={14} className="text-zinc-600 group-hover:text-indigo-400 transition-colors" />
         </a>
-
-        {/* Donate */}
-        <div className="flex-1 px-4 py-3 rounded-xl bg-amber-500/8 border border-amber-500/20">
-          <div className="flex items-center gap-2 mb-2">
-            <Coffee size={13} className="text-amber-400 shrink-0" />
-            <span className="text-xs font-semibold text-amber-300">Support development</span>
-          </div>
-          <p className="text-[11px] text-zinc-500 mb-2.5 leading-relaxed">
-            If Siftly saves you time, consider leaving a tip
-          </p>
-          <button
-            onClick={copyAddress}
-            className="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-zinc-900/60 border border-amber-500/20 hover:border-amber-500/50 hover:bg-zinc-900 transition-all group"
-          >
-            <span className="text-[10px] font-mono text-zinc-400 group-hover:text-zinc-200 transition-colors truncate">
-              {DONATION_ADDRESS}
-            </span>
-            {copied
-              ? <Check size={13} className="text-emerald-400 shrink-0" />
-              : <Copy size={13} className="text-zinc-600 group-hover:text-amber-400 transition-colors shrink-0" />
-            }
-          </button>
-          {copied && (
-            <p className="text-[10px] text-emerald-400 mt-1.5 text-center">Address copied!</p>
-          )}
-        </div>
-      </div>
-    </Section>
-  )
-}
-
-function XOAuthSection({ onToast }: { onToast: (t: Toast) => void }) {
-  const [clientId, setClientId] = useState('')
-  const [clientSecret, setClientSecret] = useState('')
-  const [savedId, setSavedId] = useState<string | null>(null)
-  const [savedSecret, setSavedSecret] = useState<string | null>(null)
-  const [saving, setSaving] = useState(false)
-
-  useEffect(() => {
-    fetch('/api/settings')
-      .then((r) => r.json())
-      .then((d: Record<string, unknown>) => {
-        if (d.hasXOAuth && d.xOAuthClientId) setSavedId(d.xOAuthClientId as string)
-        if (d.xOAuthClientSecret) setSavedSecret(d.xOAuthClientSecret as string)
-      })
-      .catch(() => {})
-  }, [])
-
-  async function handleSave() {
-    if (!clientId.trim()) {
-      onToast({ type: 'error', message: 'Client ID is required' })
-      return
-    }
-    setSaving(true)
-    try {
-      const payload: Record<string, string> = { xOAuthClientId: clientId.trim() }
-      if (clientSecret.trim()) payload.xOAuthClientSecret = clientSecret.trim()
-      const res = await fetch('/api/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({})) as { error?: string }
-        throw new Error(data.error ?? 'Failed to save')
-      }
-      setSavedId(clientId.trim().slice(0, 6) + '••••' + clientId.trim().slice(-4))
-      if (clientSecret.trim()) setSavedSecret(clientSecret.trim().slice(0, 4) + '••••')
-      setClientId('')
-      setClientSecret('')
-      onToast({ type: 'success', message: 'X OAuth credentials saved' })
-    } catch (err) {
-      onToast({ type: 'error', message: err instanceof Error ? err.message : 'Failed to save' })
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  async function handleRemove() {
-    try {
-      await fetch('/api/settings', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: 'x_oauth_client_id' }),
-      })
-      await fetch('/api/settings', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: 'x_oauth_client_secret' }),
-      })
-      setSavedId(null)
-      setSavedSecret(null)
-      onToast({ type: 'success', message: 'X OAuth credentials removed' })
-    } catch (err) {
-      onToast({ type: 'error', message: err instanceof Error ? err.message : 'Failed to remove' })
-    }
-  }
-
-  const callbackUrl = typeof window !== 'undefined'
-    ? `${window.location.origin}/api/import/x-oauth/callback`
-    : '/api/import/x-oauth/callback'
-
-  return (
-    <Section
-      icon={Shield}
-      title="X (Twitter) OAuth 2.0"
-      description="Connect your X account to import bookmarks using the official API."
-    >
-      <div className="space-y-4">
-        {savedId ? (
-          <div className="space-y-3">
-            <div className="flex items-center justify-between gap-3 p-3.5 rounded-xl bg-emerald-500/8 border border-emerald-500/20">
-              <div className="flex items-center gap-2.5">
-                <Check size={15} className="text-emerald-400 shrink-0" />
-                <div className="text-sm">
-                  <span className="text-emerald-300">Client ID: </span>
-                  <span className="text-zinc-400 font-mono text-xs">{savedId}</span>
-                  {savedSecret && (
-                    <>
-                      <span className="text-zinc-600 mx-2">·</span>
-                      <span className="text-emerald-300">Secret: </span>
-                      <span className="text-zinc-400 font-mono text-xs">{savedSecret}</span>
-                    </>
-                  )}
-                </div>
-              </div>
-              <button
-                onClick={handleRemove}
-                className="p-1.5 rounded-lg text-zinc-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                title="Remove X OAuth credentials"
-              >
-                <Trash2 size={14} />
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            <div className="space-y-2">
-              <input
-                type="text"
-                placeholder="Client ID"
-                value={clientId}
-                onChange={(e) => setClientId(e.target.value)}
-                className="w-full px-3 py-2.5 rounded-xl bg-zinc-800 border border-zinc-700 text-zinc-200 text-sm placeholder:text-zinc-600 focus:outline-none focus:border-indigo-500/50 font-mono"
-              />
-              <input
-                type="password"
-                placeholder="Client Secret (optional for public clients)"
-                value={clientSecret}
-                onChange={(e) => setClientSecret(e.target.value)}
-                className="w-full px-3 py-2.5 rounded-xl bg-zinc-800 border border-zinc-700 text-zinc-200 text-sm placeholder:text-zinc-600 focus:outline-none focus:border-indigo-500/50 font-mono"
-              />
-            </div>
-            <button
-              onClick={handleSave}
-              disabled={saving || !clientId.trim()}
-              className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors flex items-center justify-center gap-2"
-            >
-              {saving ? <Loader2 size={14} className="animate-spin" /> : <Key size={14} />}
-              {saving ? 'Saving...' : 'Save X OAuth Credentials'}
-            </button>
-          </div>
-        )}
-
-        <div className="text-xs text-zinc-600 space-y-1">
-          <p>
-            Get credentials from the{' '}
-            <a href="https://developer.x.com/en/portal/dashboard" target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:underline">
-              X Developer Portal
-            </a>
-          </p>
-          <p>
-            Callback URL: <code className="bg-zinc-800 px-1.5 py-0.5 rounded font-mono text-zinc-400">{callbackUrl}</code>
-          </p>
+        <div className="flex-1 p-4 rounded-2xl bg-amber-500/5 border border-amber-500/10">
+          <p className="text-xs font-bold text-amber-400 mb-1 flex items-center gap-2"><Coffee size={14} /> Support</p>
+          <button onClick={() => { void navigator.clipboard.writeText(DONATION_ADDRESS); setCopied(true); setTimeout(() => setCopied(false), 2000) }} className="w-full font-mono text-[9px] text-zinc-500 hover:text-amber-400 transition-colors truncate">{copied ? 'Address Copied!' : DONATION_ADDRESS}</button>
         </div>
       </div>
     </Section>
@@ -980,34 +650,17 @@ function XOAuthSection({ onToast }: { onToast: (t: Toast) => void }) {
 
 export default function SettingsPage() {
   const [toast, setToast] = useState<Toast | null>(null)
-
-  function showToast(t: Toast) {
-    setToast(t)
-    setTimeout(() => setToast(null), 4000)
-  }
-
   return (
-    <div className="p-6 md:p-8 max-w-2xl mx-auto">
-
-      {/* Page Header */}
-      <div className="mb-8">
-        <p className="text-xs text-zinc-500 uppercase tracking-widest font-medium mb-1">Configuration</p>
-        <h1 className="text-2xl font-bold text-zinc-100">Settings</h1>
-        <p className="text-zinc-400 mt-1 text-sm">Configure your Siftly instance</p>
+    <div className="p-6 md:p-12 max-w-2xl mx-auto min-h-screen">
+      <div className="mb-10">
+        <p className="text-[10px] text-zinc-500 uppercase tracking-[0.2em] font-bold mb-2">Options</p>
+        <h1 className="text-4xl font-black text-white tracking-tight">Settings</h1>
       </div>
-
-      {/* Toast */}
-      {toast && (
-        <div className="mb-6">
-          <ToastAlert toast={toast} />
-        </div>
-      )}
-
-      <div className="space-y-4">
-        <ApiKeySection onToast={showToast} />
-        <XOAuthSection onToast={showToast} />
+      {toast && <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[100] w-full max-w-sm px-4"><ToastAlert toast={toast} /></div>}
+      <div className="space-y-6">
+        <ApiKeySection onToast={(t) => { setToast(t); setTimeout(() => setToast(null), 4000) }} />
         <DataSection />
-        <DangerZoneSection onToast={showToast} />
+        <DangerZoneSection onToast={(t) => { setToast(t); setTimeout(() => setToast(null), 4000) }} />
         <AboutSection />
       </div>
     </div>
